@@ -1,5 +1,8 @@
 Changelog Smart Crafting Table
 
+1.2.11
+- Fixed Crash on startup
+
 1.2.10
 - Added Mouse inputs as valid buttons for opening the smart crafting table
 

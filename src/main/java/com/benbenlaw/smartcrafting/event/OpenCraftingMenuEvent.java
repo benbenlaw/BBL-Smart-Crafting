@@ -42,7 +42,7 @@ public class OpenCraftingMenuEvent {
     }
 
     @SubscribeEvent
-    public static void onOpenSmartCraftingMenuButtonPressed(InputEvent.MouseButton event) {
+    public static void onOpenSmartCraftingMenuButtonPressedMouse(InputEvent.MouseButton.Post event) {
 
         Player player = Minecraft.getInstance().player;
 
