@@ -41,6 +41,21 @@ public class OpenCraftingMenuEvent {
         }
     }
 
+    @SubscribeEvent
+    public static void onOpenSmartCraftingMenuButtonPressed(InputEvent.MouseButton event) {
+
+        Player player = Minecraft.getInstance().player;
+
+        if (KeyBinds.OPEN_SMART_CRAFTING_MENU_HOTKEY.consumeClick()) {
+            assert player != null;
+            if (hasPortableSmartCraftingTable(player)) {
+                PacketDistributor.sendToServer(new SendOpenSmartCraftingMenuToServer(player.blockPosition()));
+            } else {
+                player.sendSystemMessage(Component.translatable("message.smartcrafting.no_portable_table"));
+            }
+        }
+    }
+
     private static boolean hasPortableSmartCraftingTable(Player player) {
 
         if (player.getInventory().items.stream().anyMatch(itemStack -> itemStack.getItem() == SmartCraftingItems.PORTABLE_SMART_CRAFTING_TABLE.get())) {
