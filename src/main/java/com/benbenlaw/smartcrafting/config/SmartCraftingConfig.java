@@ -1,9 +1,6 @@
 package com.benbenlaw.smartcrafting.config;
 
-import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.ModConfigSpec;
-
-import java.util.List;
 
 public class SmartCraftingConfig {
 

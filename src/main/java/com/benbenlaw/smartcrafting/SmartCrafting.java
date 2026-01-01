@@ -1,12 +1,13 @@
 package com.benbenlaw.smartcrafting;
 
+import com.benbenlaw.smartcrafting.block.SmartCraftingBlocks;
 import com.benbenlaw.smartcrafting.config.SmartCraftingConfig;
 import com.benbenlaw.smartcrafting.item.SmartCraftingItems;
-import com.benbenlaw.smartcrafting.block.SmartCraftingBlocks;
 import com.benbenlaw.smartcrafting.networking.SmartCraftingMessages;
 import com.benbenlaw.smartcrafting.screen.SmartCraftingMenus;
 import com.benbenlaw.smartcrafting.screen.SmartCraftingScreen;
 import com.benbenlaw.smartcrafting.util.KeyBinds;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.ItemStack;
@@ -85,5 +86,9 @@ public class SmartCrafting {
                     CreativeModeTab.TabVisibility.PARENT_AND_SEARCH_TABS
             );
         }
+    }
+
+    public static Identifier identifier(String path) {
+        return Identifier.fromNamespaceAndPath(MOD_ID, path);
     }
 }

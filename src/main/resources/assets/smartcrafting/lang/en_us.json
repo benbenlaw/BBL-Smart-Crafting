@@ -10,5 +10,6 @@
   "message.smartcrafting.no_portable_table": "You don't have a Portable Smart Crafting Table in your inventory",
 
   "tooltip.smartcrafting.shift": "Press SHIFT for more info",
-  "tooltip.smartcrafting.button": "Press %s to open from your inventory"
+  "tooltip.smartcrafting.button": "Press %s to open from your inventory",
+  "tooltip.smartcrafting.portable_smart_crafting_table": "Press %s to open from your inventory"
 }

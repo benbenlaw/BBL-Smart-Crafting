@@ -1,6 +1,7 @@
 package com.benbenlaw.smartcrafting.screen;
 
 import com.benbenlaw.smartcrafting.config.SmartCraftingConfig;
+import com.benbenlaw.smartcrafting.event.VanillaRecipeCache;
 import com.benbenlaw.smartcrafting.networking.packets.SyncFavoriteRecipesClient;
 import com.benbenlaw.smartcrafting.networking.packets.SyncSortTypeClient;
 import com.benbenlaw.smartcrafting.networking.payload.SmartCraftingRecipePayload;
@@ -11,7 +12,7 @@ import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -19,7 +20,10 @@ import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.*;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerData;
+import net.minecraft.world.inventory.SimpleContainerData;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.*;
 import net.minecraft.world.level.Level;
@@ -57,18 +61,18 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         this.blockPos = blockPos;
         this.level = inventory.player.level();
         this.data = data;
-        this.sortType = player.getPersistentData().getString("smart_crafting_sort_type");
+        this.sortType = String.valueOf(player.getPersistentData().getString("smart_crafting_sort_type"));
 
-        this.lastInventorySnapshot = NonNullList.withSize(player.getInventory().items.size(), ItemStack.EMPTY);
-        for (int i = 0; i < player.getInventory().items.size(); i++) {
-            this.lastInventorySnapshot.set(i, player.getInventory().items.get(i).copy());
+        this.lastInventorySnapshot = NonNullList.withSize(player.getInventory().getNonEquipmentItems().size(), ItemStack.EMPTY);
+        for (int i = 0; i < player.getInventory().getNonEquipmentItems().size(); i++) {
+            this.lastInventorySnapshot.set(i, player.getInventory().getItem(i).copy());
         }
 
-        if (!level.isClientSide) {
+        if (!level.isClientSide()) {
             updateValidRecipes();
-            PacketDistributor.sendToPlayer((ServerPlayer) inventory.player, new SyncSortTypeClient(player.getPersistentData().getString("smart_crafting_sort_type")));
-            ListTag listTag = player.getPersistentData().getList(FAVORITES_TAG, Tag.TAG_STRING);
-            List<String> favorites = listTag.stream().map(Tag::getAsString).toList();
+            PacketDistributor.sendToPlayer((ServerPlayer) inventory.player, new SyncSortTypeClient(player.getPersistentData().getStringOr("smart_crafting_sort_type", "")));
+            ListTag listTag = player.getPersistentData().getListOrEmpty(FAVORITES_TAG);
+            List<String> favorites = listTag.stream().map(Tag::toString).toList();
             PacketDistributor.sendToPlayer((ServerPlayer) inventory.player, new SyncFavoriteRecipesClient(favorites));
         }
 
@@ -79,63 +83,39 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     }
 
     public void updateValidRecipes() {
-        if (level.isClientSide) return;
+        if (level.isClientSide()) return;
 
-        List<RecipeHolder<?>> recipes = getValidRecipes();
-
-        List<ResourceLocation> recipeIds = recipes.stream()
-                .map(RecipeHolder::id)
-                .toList();
+        List<Identifier> recipeIds = getValidRecipeIds();
         sendRecipesToClient(recipeIds);
     }
 
-    private void sendRecipesToClient(List<ResourceLocation> recipeIds) {
-        SmartCraftingRecipePayload packet = new SmartCraftingRecipePayload(recipeIds);
-        PacketDistributor.sendToPlayer((ServerPlayer) player, packet);
+    private void sendRecipesToClient(List<Identifier> recipeIds) {
+        PacketDistributor.sendToPlayer((ServerPlayer) player, new SmartCraftingRecipePayload(recipeIds));
     }
 
-    public List<RecipeHolder<?>> getValidRecipes() {
-        if (level.isClientSide) return Collections.emptyList();
-
-        long startTime = System.nanoTime(); // Start timing
-
-        RecipeManager rm = level.getRecipeManager();
-        List<RecipeHolder<CraftingRecipe>> craftingRecipes = rm.getAllRecipesFor(RecipeType.CRAFTING);
-        List<RecipeHolder<StonecutterRecipe>> stonecutterRecipes = rm.getAllRecipesFor(RecipeType.STONECUTTING);
+    public List<Identifier> getValidRecipeIds() {
+        if (level.isClientSide()) return Collections.emptyList();
 
         Container inv = buildCombinedInventory();
-        List<RecipeHolder<?>> allRecipes = new ArrayList<>();
+        List<Identifier> results = new ArrayList<>();
 
-        int craftingMatchCount = 0;
-        for (RecipeHolder<CraftingRecipe> holder : craftingRecipes) {
-            if (recipeHasMatchingIngredients(holder.value(), inv) && canCraftFromInventory(holder.value(), inv)) {
-                allRecipes.add(holder);
-                craftingMatchCount++;
+        for (Map.Entry<Identifier, CraftingRecipe> entry : VanillaRecipeCache.cachedCraftingRecipes.entrySet()) {
+            CraftingRecipe recipe = entry.getValue();
+            if (recipeHasMatchingIngredients(recipe, inv) && canCraftFromInventory(recipe, inv)) {
+                results.add(entry.getKey());
             }
         }
 
-        int stonecutterMatchCount = 0;
-        if (isStonecutterNearby(player)) {
-            for (RecipeHolder<StonecutterRecipe> holder : stonecutterRecipes) {
-                if (recipeHasMatchingIngredients(holder.value(), inv) && canCraftStonecutterFromInventory(holder.value(), inv)) {
-                    allRecipes.add(holder);
-                    stonecutterMatchCount++;
-                }
+        for (Map.Entry<Identifier, StonecutterRecipe> entry : VanillaRecipeCache.cachedStonecutterRecipes.entrySet()) {
+            StonecutterRecipe recipe = entry.getValue();
+            if (recipeHasMatchingIngredients(recipe, inv) && canCraftStonecutterFromInventory(recipe, inv)) {
+                results.add(entry.getKey());
             }
         }
 
-        /* recipe time logging
-        long endTime = System.nanoTime(); // End timing
-        double durationMs = (endTime - startTime) / 1_000_000.0;
+        return results;
 
-        player.sendSystemMessage(Component.literal("  Crafting Recipes: " + craftingMatchCount + " / " + craftingRecipes.size()));
-        player.sendSystemMessage(Component.literal("  Stonecutter Recipes: " + stonecutterMatchCount + " / " + stonecutterRecipes.size()));
-        player.sendSystemMessage(Component.literal(String.format("  Recipe filtering took %.3f ms", durationMs)));
-         */
-
-        return allRecipes;
     }
-
 
     private List<IItemHandler> findConnectedItemHandlers() {
         List<IItemHandler> itemHandlers = new ArrayList<>();
@@ -162,8 +142,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                     }
                 }
 
-                IItemHandler handler = Capabilities.ItemHandler.BLOCK
-                        .getCapability(level, pos, level.getBlockState(pos), be, null);
+                IItemHandler handler = IItemHandler.of(Objects.requireNonNull(Capabilities.Item.BLOCK.getCapability(level, pos, level.getBlockState(pos), be, null)));
                 if (handler != null) {
                     itemHandlers.add(handler);
                 }
@@ -182,7 +161,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         List<ItemStack> combinedStacks = new ArrayList<>();
 
         //Player Inventory
-        for (ItemStack stack : player.getInventory().items) {
+        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
             if (!stack.isEmpty()) {
                 combinedStacks.add(stack.copy());
             }
@@ -265,7 +244,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     }
 
     private boolean canCraftStonecutterFromInventory(StonecutterRecipe recipe, Container inv) {
-        for (Ingredient ingredient : recipe.getIngredients()) {
+        for (Ingredient ingredient : recipe.placementInfo().ingredients()) {
             boolean found = false;
             for (int i = 0; i < inv.getContainerSize(); i++) {
                 ItemStack stack = inv.getItem(i);
@@ -281,7 +260,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
 
     private CraftingInput buildCraftingInputForRecipe(CraftingRecipe recipe, Container inv) {
         NonNullList<ItemStack> grid = NonNullList.withSize(9, ItemStack.EMPTY);
-        List<Ingredient> ingredients = recipe.getIngredients();
+        List<Ingredient> ingredients = recipe.placementInfo().ingredients();
         int[] usedSlots = new int[inv.getContainerSize()];
 
         if (recipe instanceof ShapedRecipe shaped) {
@@ -335,16 +314,11 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         return CraftingInput.ofPositioned(3, 3, grid).input();
     }
 
-    public void craftRecipeById(ResourceLocation recipeId, boolean shiftClick) {
-        if (level.isClientSide) return;
+    public void craftRecipeById(Identifier recipeId, boolean shiftClick) {
+        if (level.isClientSide()) return;
 
-        RecipeManager rm = level.getRecipeManager();
-        Optional<RecipeHolder<?>> optionalRecipe = rm.byKey(recipeId);
-        if (optionalRecipe.isEmpty()) return;
-
-        Recipe<?> recipeHolder = optionalRecipe.get().value();
-
-        if (recipeHolder instanceof CraftingRecipe craftingRecipe) {
+        CraftingRecipe craftingRecipe = VanillaRecipeCache.cachedCraftingRecipes.get(recipeId);
+        if (craftingRecipe != null) {
             int maxCrafts = shiftClick ? getMaxCraftableAmount(craftingRecipe) : 1;
 
             for (int i = 0; i < maxCrafts; i++) {
@@ -354,23 +328,17 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                 if (!craftingRecipe.matches(input, level)) break;
 
                 ItemStack result = craftingRecipe.assemble(input, level.registryAccess());
+                if (!player.getInventory().add(result.copy())) player.drop(result.copy(), false);
 
-                if (!player.getInventory().add(result.copy())) {
-                    player.drop(result.copy(), false);
-                }
-
-                List<Ingredient> ingredients = craftingRecipe.getIngredients();
                 Map<Ingredient, Integer> ingredientCounts = new HashMap<>();
-                for (Ingredient ingredient : ingredients) {
+                for (Ingredient ingredient : craftingRecipe.placementInfo().ingredients()) {
                     if (!ingredient.isEmpty()) {
                         ingredientCounts.put(ingredient, ingredientCounts.getOrDefault(ingredient, 0) + 1);
                     }
                 }
 
                 for (Map.Entry<Ingredient, Integer> entry : ingredientCounts.entrySet()) {
-                    if (!consumeIngredientFromAll(entry.getKey(), entry.getValue())) {
-                        return;
-                    }
+                    if (!consumeIngredientFromAll(entry.getKey(), entry.getValue())) return;
                 }
 
                 NonNullList<ItemStack> remainders = craftingRecipe.getRemainingItems(input);
@@ -380,14 +348,18 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                     }
                 }
             }
-            player.playNotifySound(SoundEvents.LEVER_CLICK, SoundSource.PLAYERS, 1.0F, 1.0F);
+
+            player.playSound(SoundEvents.LEVER_CLICK);
+
+           // level.playLocalSound(this.blockPos, SoundEvents.LEVER_CLICK, player.getSoundSource(), 1.0F, 1.0F, false);
             player.getInventory().setChanged();
             player.inventoryMenu.broadcastChanges();
             updateValidRecipes();
             return;
         }
 
-        if (recipeHolder instanceof StonecutterRecipe stonecutterRecipe) {
+        StonecutterRecipe stonecutterRecipe = VanillaRecipeCache.cachedStonecutterRecipes.get(recipeId);
+        if (stonecutterRecipe != null) {
             int maxCrafts = shiftClick ? getMaxCraftableAmountStonecutter(stonecutterRecipe) : 1;
 
             for (int i = 0; i < maxCrafts; i++) {
@@ -395,16 +367,13 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                 if (!canCraftStonecutterFromInventory(stonecutterRecipe, combinedInv)) break;
 
                 ItemStack result = stonecutterRecipe.assemble(null, level.registryAccess());
-                if (!player.getInventory().add(result.copy())) {
-                    player.drop(result.copy(), false);
-                }
+                if (!player.getInventory().add(result.copy())) player.drop(result.copy(), false);
 
-                // ✅ Consume from real inventories, not dummy container
-                Ingredient ingredient = stonecutterRecipe.getIngredients().getFirst();
+                Ingredient ingredient = stonecutterRecipe.placementInfo().ingredients().getFirst();
                 if (!consumeIngredientFromAll(ingredient, 1)) break;
             }
 
-            player.playNotifySound(SoundEvents.UI_STONECUTTER_TAKE_RESULT, SoundSource.PLAYERS, 1.0F, 1.0F);
+            player.playSound(SoundEvents.UI_STONECUTTER_TAKE_RESULT, 1.0F, 1.0F);
             player.getInventory().setChanged();
             player.inventoryMenu.broadcastChanges();
             updateValidRecipes();
@@ -412,10 +381,11 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     }
 
 
+
     private boolean recipeHasMatchingIngredients(Recipe<?> recipe, Container inv) {
 
         if (recipe instanceof CraftingRecipe craftingRecipe) {
-            for (Ingredient ingredient : craftingRecipe.getIngredients()) {
+            for (Ingredient ingredient : craftingRecipe.placementInfo().ingredients()) {
                 if (ingredient.isEmpty()) continue;
                 boolean found = false;
                 for (int i = 0; i < inv.getContainerSize(); i++) {
@@ -431,7 +401,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         }
 
         else if (recipe instanceof StonecutterRecipe stonecutterRecipe) {
-            for (Ingredient ingredient : stonecutterRecipe.getIngredients()) {
+            for (Ingredient ingredient : stonecutterRecipe.placementInfo().ingredients()) {
                 if (ingredient.isEmpty()) continue;
                 boolean found = false;
                 for (int i = 0; i < inv.getContainerSize(); i++) {
@@ -454,7 +424,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         Container inv = buildCombinedInventory();
         int max = Integer.MAX_VALUE;
 
-        for (Ingredient ingredient : recipe.getIngredients()) {
+        for (Ingredient ingredient : recipe.placementInfo().ingredients()) {
             if (ingredient.isEmpty()) continue;
 
             int count = 0;
@@ -472,7 +442,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     }
 
     private int getMaxCraftableAmountStonecutter(StonecutterRecipe recipe) {
-        Ingredient ingredient = recipe.getIngredients().getFirst();
+        Ingredient ingredient = recipe.placementInfo().ingredients().getFirst();
         if (ingredient.isEmpty()) return 0;
 
         int count = 0;
@@ -501,10 +471,10 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     public void broadcastChanges() {
         super.broadcastChanges();
 
-        if (level.isClientSide) return;
+        if (level.isClientSide()) return;
 
         boolean changed = false;
-        List<ItemStack> current = player.getInventory().items;
+        List<ItemStack> current = player.getInventory().getNonEquipmentItems();
 
         for (int i = 0; i < current.size(); i++) {
             ItemStack oldStack = lastInventorySnapshot.get(i);

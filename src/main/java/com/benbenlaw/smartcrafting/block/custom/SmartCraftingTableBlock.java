@@ -1,4 +1,4 @@
-package com.benbenlaw.smartcrafting.block;
+package com.benbenlaw.smartcrafting.block.custom;
 
 import com.benbenlaw.smartcrafting.screen.SmartCraftingMenu;
 import net.minecraft.core.BlockPos;
@@ -14,14 +14,14 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 
 public class SmartCraftingTableBlock extends Block {
+
     public SmartCraftingTableBlock(Properties properties) {
         super(properties);
     }
 
-
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hit) {
-        if (!level.isClientSide) {
+        if (!level.isClientSide()) {
 
             ContainerData data = new SimpleContainerData(2);
 

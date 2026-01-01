@@ -1,5 +1,14 @@
 Changelog Smart Crafting Table
 
+RE DO NETWORKING
+RIP SOUND EVENTS
+
+
+1.3.0
+- Updated to minecraft 1.21.11 (ISH)
+- Does work but not perfect
+- Now Requires BBL Core
+
 1.2.11
 - Fixed Crash on startup
 

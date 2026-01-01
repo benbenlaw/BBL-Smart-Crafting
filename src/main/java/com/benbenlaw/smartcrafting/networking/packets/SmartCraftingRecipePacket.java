@@ -1,18 +1,21 @@
 package com.benbenlaw.smartcrafting.networking.packets;
 
+import com.benbenlaw.smartcrafting.event.VanillaRecipeCache;
 import com.benbenlaw.smartcrafting.networking.payload.SmartCraftingRecipePayload;
 import com.benbenlaw.smartcrafting.screen.SmartCraftingMenu;
 import com.benbenlaw.smartcrafting.screen.SmartCraftingScreen;
 import net.minecraft.client.Minecraft;
-import net.minecraft.world.item.crafting.CraftingRecipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
-import net.minecraft.world.item.crafting.SmithingRecipe;
-import net.minecraft.world.item.crafting.StonecutterRecipe;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.item.crafting.*;
 import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public record SmartCraftingRecipePacket() {
 
@@ -25,27 +28,32 @@ public record SmartCraftingRecipePacket() {
 
     // Resolve off-thread (not GUI)
     public void handle(final SmartCraftingRecipePayload payload, IPayloadContext context) {
-        Level level = context.player().level();
+        List<RecipeHolder<? extends Recipe<?>>> resolvedRecipes = new ArrayList<>();
 
-        // Resolve off-thread (not GUI)
-        List<? extends RecipeHolder<?>> resolvedRecipes = payload.recipeIds().stream()
-                .map(level.getRecipeManager()::byKey)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .filter(recipe -> {
-                    // Keep only crafting or stonecutting recipes
-                    return recipe.value() instanceof CraftingRecipe || recipe.value() instanceof StonecutterRecipe|| recipe.value() instanceof SmithingRecipe;
-                })
-                .toList();
+        for (Identifier id : payload.recipeIds()) {
+            if (VanillaRecipeCache.cachedCraftingRecipes.containsKey(id)) {
+                CraftingRecipe recipe = VanillaRecipeCache.cachedCraftingRecipes.get(id);
+                ResourceKey<Recipe<?>> key = ResourceKey.create(Registries.RECIPE, id);
+                resolvedRecipes.add(new RecipeHolder<>(key, recipe));
+            } else if (VanillaRecipeCache.cachedStonecutterRecipes.containsKey(id)) {
+                StonecutterRecipe recipe = VanillaRecipeCache.cachedStonecutterRecipes.get(id);
+                ResourceKey<Recipe<?>> key = ResourceKey.create(Registries.RECIPE, id);
+                resolvedRecipes.add(new RecipeHolder<>(key, recipe));
+            }
+        }
 
-        // Update the screen on main thread
-        Minecraft.getInstance().execute(() -> {
-            if (Minecraft.getInstance().player != null &&
-                    Minecraft.getInstance().player.containerMenu instanceof SmartCraftingMenu menu &&
-                    Minecraft.getInstance().screen instanceof SmartCraftingScreen screen) {
-                screen.setClientRecipes((List<RecipeHolder<?>>) resolvedRecipes);
+        // Apply to screen if open, otherwise store in pending
+        Minecraft mc = Minecraft.getInstance();
+        mc.execute(() -> {
+            if (mc.player != null &&
+                    mc.player.containerMenu instanceof SmartCraftingMenu menu &&
+                    mc.screen instanceof SmartCraftingScreen screen) {
+                screen.setClientRecipes(resolvedRecipes);
+            } else {
+                SmartCraftingScreen.pendingRecipes = resolvedRecipes;
             }
         });
     }
+
 
 }
