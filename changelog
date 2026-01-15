@@ -1,5 +1,9 @@
 Changelog Smart Crafting Table
 
+
+1.2.13
+- Config now has the ability to add blocks that are valid for the smart crafting table, this works the same as the tag blocks added here will be valid for the smart crafting table to use
+
 1.2.12
 - Added proper FTB Chunks integration, portable smart crafting table can continue to be used within someone else's claimed chunks but any nearby inventories
     will not be accessible to the both the Smart Crafting Table and the Portable Smart Crafting Table

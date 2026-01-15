@@ -10,9 +10,11 @@ import dev.ftb.mods.ftbchunks.data.ClaimedChunkManagerImpl;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.NonNullList;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -26,6 +28,7 @@ import net.minecraft.world.inventory.*;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.*;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -150,7 +153,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                 blockPos.offset(radius, radius / 2, radius)
         ).forEach(pos -> {
             BlockEntity be = level.getBlockEntity(pos);
-            if (be != null && level.getBlockState(pos).is(SmartCraftingTags.Blocks.WHITELISTED_STORAGE) && canAccessBlock(pos)) {
+            if (be != null && (level.getBlockState(pos).is(SmartCraftingTags.Blocks.WHITELISTED_STORAGE) || isAllowedViaConfig(level.getBlockState(pos).getBlock())) && canAccessBlock(pos)) {
 
                 if (be instanceof ChestBlockEntity chest) {
 
@@ -179,6 +182,17 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         //System.out.println(handlers);
 
         return itemHandlers;
+    }
+
+    private static boolean isAllowedViaConfig(Block block) {
+        ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(block);
+
+        for (String id : SmartCraftingConfig.validStorageBlocks.get()) {
+            if (blockId.toString().equalsIgnoreCase(id)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean canAccessBlock(BlockPos pos) {
