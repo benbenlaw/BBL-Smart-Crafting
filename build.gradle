@@ -75,6 +75,23 @@ dependencies {
         exclude group: 'net.neoforged', module: 'neoforge'
     }
 
+    //FTB Lib
+    compileOnly "curse.maven:ftb-library-forge-404465:7420412"
+    runtimeOnly "curse.maven:ftb-library-forge-404465:7420412"
+
+    //FTB Chunks
+    compileOnly "curse.maven:ftb-chunks-forge-314906:7157142"
+    runtimeOnly "curse.maven:ftb-chunks-forge-314906:7157142"
+
+    //ftb-teams-forge
+    compileOnly "curse.maven:ftb-teams-forge-404468:7369021"
+    runtimeOnly "curse.maven:ftb-teams-forge-404468:7369021"
+
+    //architectury-api
+    compileOnly "curse.maven:architectury-api-419699:5786327"
+    runtimeOnly "curse.maven:architectury-api-419699:5786327"
+
+
 }
 
 tasks.withType(ProcessResources).configureEach {

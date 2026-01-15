@@ -1,5 +1,10 @@
 Changelog Smart Crafting Table
 
+1.2.12
+- Added proper FTB Chunks integration, portable smart crafting table can continue to be used within someone else's claimed chunks but any nearby inventories
+    will not be accessible to the both the Smart Crafting Table and the Portable Smart Crafting Table
+- With this above change the range for the nearby inventories check has been increased to 5 blocks from 3 by default (configurable)
+
 1.2.11
 - Fixed Crash on startup
 

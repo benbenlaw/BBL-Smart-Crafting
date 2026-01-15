@@ -17,11 +17,11 @@ public class SmartCraftingConfig {
 
         storageRangeCheck = BUILDER
                 .comment("The range in blocks to check for storage blocks when crafting. Higher valves will take more time, Default is 3.")
-                .defineInRange("storageRangeCheck", 3, 1, 64);
+                .defineInRange("storageRangeCheck", 5, 1, 64);
 
         stonecutterRangeCheck = BUILDER
                 .comment("The range in blocks to check for stonecutter blocks when crafting. Higher valves will take more time, Default is 3.")
-                .defineInRange("stonecutterRangeCheck", 3, 1, 64);
+                .defineInRange("stonecutterRangeCheck", 5, 1, 64);
 
         BUILDER.pop();
         SPEC = BUILDER.build();

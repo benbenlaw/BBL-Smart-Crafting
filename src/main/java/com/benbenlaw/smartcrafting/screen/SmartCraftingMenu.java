@@ -5,6 +5,8 @@ import com.benbenlaw.smartcrafting.networking.packets.SyncFavoriteRecipesClient;
 import com.benbenlaw.smartcrafting.networking.packets.SyncSortTypeClient;
 import com.benbenlaw.smartcrafting.networking.payload.SmartCraftingRecipePayload;
 import com.benbenlaw.smartcrafting.util.SmartCraftingTags;
+import dev.ftb.mods.ftbchunks.api.Protection;
+import dev.ftb.mods.ftbchunks.data.ClaimedChunkManagerImpl;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.NonNullList;
@@ -16,6 +18,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -28,6 +31,7 @@ import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.properties.ChestType;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -146,7 +150,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                 blockPos.offset(radius, radius / 2, radius)
         ).forEach(pos -> {
             BlockEntity be = level.getBlockEntity(pos);
-            if (be != null && level.getBlockState(pos).is(SmartCraftingTags.Blocks.WHITELISTED_STORAGE)) {
+            if (be != null && level.getBlockState(pos).is(SmartCraftingTags.Blocks.WHITELISTED_STORAGE) && canAccessBlock(pos)) {
 
                 if (be instanceof ChestBlockEntity chest) {
 
@@ -177,6 +181,17 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         return itemHandlers;
     }
 
+    private boolean canAccessBlock(BlockPos pos) {
+        if (!(player instanceof ServerPlayer serverPlayer1)) {
+            return false;
+        }
+
+        if (ModList.get().isLoaded("ftbchunks")) {
+            return !ClaimedChunkManagerImpl.getInstance().shouldPreventInteraction(serverPlayer1, InteractionHand.MAIN_HAND, pos, Protection.EDIT_AND_INTERACT_BLOCK, null);
+        } else {
+            return true;
+        }
+    }
 
     private Container buildCombinedInventory() {
         List<ItemStack> combinedStacks = new ArrayList<>();
