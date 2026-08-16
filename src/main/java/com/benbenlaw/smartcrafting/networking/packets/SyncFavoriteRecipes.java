@@ -27,7 +27,6 @@ public record SyncFavoriteRecipes(List<String> favorites) implements CustomPacke
             listTag.add(StringTag.valueOf(fav));
         }
 
-        // Save into player persistent data
         player.getPersistentData().put(FAVORITES_TAG, listTag);
     };
 

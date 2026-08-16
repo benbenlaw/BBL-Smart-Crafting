@@ -104,7 +104,7 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     public List<RecipeHolder<?>> getValidRecipes() {
         if (level.isClientSide) return Collections.emptyList();
 
-        long startTime = System.nanoTime(); // Start timing
+        long startTime = System.nanoTime();
 
         RecipeManager rm = level.getRecipeManager();
         List<RecipeHolder<CraftingRecipe>> craftingRecipes = rm.getAllRecipesFor(RecipeType.CRAFTING);
@@ -160,11 +160,9 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                     ChestType type = chest.getBlockState().getValue(ChestBlock.TYPE);
                     if (type != ChestType.SINGLE) {
                         Direction dir = ChestBlock.getConnectedDirection(chest.getBlockState());
-                        if (dir != null) {
-                            BlockPos otherPos = pos.relative(dir);
-                            if (otherPos.compareTo(pos) < 0) {
-                                return;
-                            }
+                        BlockPos otherPos = pos.relative(dir);
+                        if (otherPos.compareTo(pos) < 0) {
+                            return;
                         }
                     }
                 }
@@ -383,9 +381,10 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                 if (!craftingRecipe.matches(input, level)) break;
 
                 ItemStack result = craftingRecipe.assemble(input, level.registryAccess());
+                ItemStack resultToGive = result.copy();
 
-                if (!player.getInventory().add(result.copy())) {
-                    player.drop(result.copy(), false);
+                if (!player.getInventory().add(resultToGive)) {
+                    player.drop(resultToGive, false);
                 }
 
                 List<Ingredient> ingredients = craftingRecipe.getIngredients();
@@ -424,11 +423,12 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
                 if (!canCraftStonecutterFromInventory(stonecutterRecipe, combinedInv)) break;
 
                 ItemStack result = stonecutterRecipe.assemble(null, level.registryAccess());
-                if (!player.getInventory().add(result.copy())) {
-                    player.drop(result.copy(), false);
+                ItemStack resultToGive = result.copy();
+
+                if (!player.getInventory().add(resultToGive)) {
+                    player.drop(resultToGive, false);
                 }
 
-                // ✅ Consume from real inventories, not dummy container
                 Ingredient ingredient = stonecutterRecipe.getIngredients().getFirst();
                 if (!consumeIngredientFromAll(ingredient, 1)) break;
             }
@@ -497,7 +497,32 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
             max = Math.min(max, count);
         }
 
-        return Math.max(0, Math.min(max, 64));
+        max = Math.clamp(max, 0, 64);
+        if (max <= 0) return 0;
+
+        ItemStack sampleResult = recipe.getResultItem(level.registryAccess());
+        if (!sampleResult.isEmpty()) {
+            int resultCountPerCraft = Math.max(1, sampleResult.getCount());
+            int freeSpace = getFreeSpaceForItem(sampleResult);
+            max = Math.min(max, freeSpace / resultCountPerCraft);
+        }
+
+        return Math.max(0, max);
+    }
+
+    private int getFreeSpaceForItem(ItemStack sample) {
+        int space = 0;
+        int maxStackSize = sample.getMaxStackSize();
+
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack.isEmpty()) {
+                space += maxStackSize;
+            } else if (ItemStack.isSameItemSameComponents(stack, sample)) {
+                space += Math.max(0, maxStackSize - stack.getCount());
+            }
+        }
+
+        return space;
     }
 
     private int getMaxCraftableAmountStonecutter(StonecutterRecipe recipe) {

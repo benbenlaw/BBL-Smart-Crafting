@@ -26,7 +26,6 @@ public record SyncFavoriteRecipesClient(List<String> favorites) implements Custo
         for (String fav : pkt.favorites()) {
             listTag.add(StringTag.valueOf(fav));
         }
-        // Save into player persistent data
         player.getPersistentData().put(FAVORITES_TAG, listTag);
     };
 

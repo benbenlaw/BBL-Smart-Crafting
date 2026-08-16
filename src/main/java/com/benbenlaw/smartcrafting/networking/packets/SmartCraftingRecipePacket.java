@@ -22,23 +22,18 @@ public record SmartCraftingRecipePacket() {
         return INSTANCE;
     }
 
-
-    // Resolve off-thread (not GUI)
     public void handle(final SmartCraftingRecipePayload payload, IPayloadContext context) {
         Level level = context.player().level();
 
-        // Resolve off-thread (not GUI)
         List<? extends RecipeHolder<?>> resolvedRecipes = payload.recipeIds().stream()
                 .map(level.getRecipeManager()::byKey)
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .filter(recipe -> {
-                    // Keep only crafting or stonecutting recipes
                     return recipe.value() instanceof CraftingRecipe || recipe.value() instanceof StonecutterRecipe|| recipe.value() instanceof SmithingRecipe;
                 })
                 .toList();
 
-        // Update the screen on main thread
         Minecraft.getInstance().execute(() -> {
             if (Minecraft.getInstance().player != null &&
                     Minecraft.getInstance().player.containerMenu instanceof SmartCraftingMenu menu &&

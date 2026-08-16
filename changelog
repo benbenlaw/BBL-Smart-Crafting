@@ -1,5 +1,11 @@
 Changelog Smart Crafting Table
 
+1.2.14
+- Fixed dupe issue when trying to craft items with an almost full inventory
+- Shift clicking to craft now only feels available slots in inventory instead of duping results into the world
+- Added Russian translation thanks @shaaaaash
+- Added Japanese translation thanks @hamu6251ren0725-hue
+- Added partial Chinese translation thanks @ZHAY10086
 
 1.2.13
 - Config now has the ability to add blocks that are valid for the smart crafting table, this works the same as the tag blocks added here will be valid for the smart crafting table to use

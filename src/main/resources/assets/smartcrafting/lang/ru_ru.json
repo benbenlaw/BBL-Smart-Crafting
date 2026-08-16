@@ -1,0 +1,14 @@
+{
+  "block.smartcrafting.smart_crafting_table": "Умный верстак",
+  "block.smartcrafting.smart_crafting_table.sort_by_mod": "Сортировка по имени",
+  "block.smartcrafting.smart_crafting_table.sort_by_name": "Сортировка по моду",
+
+  "item.smartcrafting.portable_smart_crafting_table": "Умный верстак на палке",
+
+  "key.category.smartcrafting": "Умный верстак",
+  "key.smartcrafting.open_smart_crafting_menu": "Открыть умный верстак",
+  "message.smartcrafting.no_portable_table": "В вашем инвентаре нет умного верстака на палке",
+
+  "tooltip.smartcrafting.shift": "SHIFT для доп. информации",
+  "tooltip.smartcrafting.button": "Нажмите %s, чтобы открыть из инвентаря"
+}
