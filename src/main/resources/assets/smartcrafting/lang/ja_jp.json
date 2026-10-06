@@ -1,0 +1,14 @@
+{
+  "block.smartcrafting.smart_crafting_table": "便利作業台",
+  "block.smartcrafting.smart_crafting_table.sort_by_mod": "名前順に並べ替え",
+  "block.smartcrafting.smart_crafting_table.sort_by_name": "Mod順に並べ替え",
+
+  "item.smartcrafting.portable_smart_crafting_table": "携帯型便利作業台",
+
+  "key.category.smartcrafting": "Smart Crafting Table",
+  "key.smartcrafting.open_smart_crafting_menu": "便利作業台を開く",
+  "message.smartcrafting.no_portable_table": "メインインベントリに携帯型便利作業台がありません",
+
+  "tooltip.smartcrafting.shift": "SHIFTを押して情報表示",
+  "tooltip.smartcrafting.button": "メインインベントリ内で%sを押すと開きます"
+}

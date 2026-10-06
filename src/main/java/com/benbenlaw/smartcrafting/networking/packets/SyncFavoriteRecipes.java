@@ -1,8 +1,7 @@
 package com.benbenlaw.smartcrafting.networking.packets;
 
 import com.benbenlaw.smartcrafting.SmartCrafting;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.StringTag;
+import com.benbenlaw.smartcrafting.util.PlayerData;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -13,29 +12,19 @@ import net.neoforged.neoforge.network.handling.IPayloadHandler;
 
 import java.util.List;
 
-import static com.benbenlaw.smartcrafting.screen.SmartCraftingScreen.FAVORITES_TAG;
-
 public record SyncFavoriteRecipes(List<String> favorites) implements CustomPacketPayload {
 
-    public static final Type<SyncFavoriteRecipes> TYPE = new Type<>(Identifier.fromNamespaceAndPath(SmartCrafting.MOD_ID,"favorite_recipes_sync"));
-
+    public static final Type<SyncFavoriteRecipes> TYPE = new Type<>(Identifier.fromNamespaceAndPath(SmartCrafting.MOD_ID, "favorite_recipes_sync"));
 
     public static final IPayloadHandler<SyncFavoriteRecipes> HANDLER = (pkt, ctx) -> {
         ServerPlayer player = (ServerPlayer) ctx.player();
-        ListTag listTag = new ListTag();
-        for (String fav : pkt.favorites()) {
-            listTag.add(StringTag.valueOf(fav));
-        }
-
-        // Save into player persistent data
-        player.getPersistentData().put(FAVORITES_TAG, listTag);
+        PlayerData.setFavorites(player, pkt.favorites());
     };
 
     public static final StreamCodec<RegistryFriendlyByteBuf, SyncFavoriteRecipes> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), SyncFavoriteRecipes::favorites,
             SyncFavoriteRecipes::new
     );
-
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

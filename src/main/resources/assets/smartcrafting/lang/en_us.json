@@ -11,5 +11,20 @@
 
   "tooltip.smartcrafting.shift": "Press SHIFT for more info",
   "tooltip.smartcrafting.button": "Press %s to open from your inventory",
-  "tooltip.smartcrafting.portable_smart_crafting_table": "Press %s to open from your inventory"
+  "tooltip.smartcrafting.portable_smart_crafting_table": "Press %s to open from your inventory",
+  "tooltip.smartcrafting.click_craft": "Click to craft",
+  "tooltip.smartcrafting.shift_craft": "Shift-click to craft as many as possible",
+  "tooltip.smartcrafting.favorite": "Right-click to favorite",
+  "tooltip.smartcrafting.option.crafting": "Crafting Recipes",
+  "tooltip.smartcrafting.option.stonecutting": "Stonecutting Recipes",
+  "tooltip.smartcrafting.option.smithing": "Smithing Recipes",
+  "tooltip.smartcrafting.option.jei_sync": "JEI Search Sync",
+  "tooltip.smartcrafting.option.sort": "Sort Mode",
+  "tooltip.smartcrafting.option.sort_name": "Sorting by Name",
+  "tooltip.smartcrafting.option.sort_mod": "Sorting by Mod",
+  "tooltip.smartcrafting.option.enabled": "Enabled",
+  "tooltip.smartcrafting.option.disabled": "Disabled",
+  "tooltip.smartcrafting.option.recursive": "Recursive Crafting",
+  "tooltip.smartcrafting.option.recursive_info": "Crafts intermediate items for you (eg logs to planks to stairs)",
+  "tooltip.smartcrafting.requires_crafting": "Crafts first:"
 }

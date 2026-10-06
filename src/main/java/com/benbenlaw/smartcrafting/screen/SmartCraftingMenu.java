@@ -1,19 +1,25 @@
 package com.benbenlaw.smartcrafting.screen;
 
+import com.benbenlaw.smartcrafting.compat.FTBChunksCompat;
 import com.benbenlaw.smartcrafting.config.SmartCraftingConfig;
-import com.benbenlaw.smartcrafting.event.VanillaRecipeCache;
+import com.benbenlaw.smartcrafting.crafting.RecursivePlanner;
 import com.benbenlaw.smartcrafting.networking.packets.SyncFavoriteRecipesClient;
+import com.benbenlaw.smartcrafting.networking.packets.SyncRecursiveClient;
 import com.benbenlaw.smartcrafting.networking.packets.SyncSortTypeClient;
 import com.benbenlaw.smartcrafting.networking.payload.SmartCraftingRecipePayload;
+import com.benbenlaw.smartcrafting.util.PlayerData;
 import com.benbenlaw.smartcrafting.util.SmartCraftingTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.NonNullList;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.Tag;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.Container;
@@ -24,22 +30,25 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.*;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.transfer.ResourceHandler;
+import net.neoforged.neoforge.transfer.item.ItemResource;
+import net.neoforged.neoforge.transfer.transaction.Transaction;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
-
-import static com.benbenlaw.smartcrafting.screen.SmartCraftingScreen.FAVORITES_TAG;
+import java.util.function.Predicate;
 
 public class SmartCraftingMenu extends AbstractContainerMenu {
 
@@ -47,9 +56,9 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     protected ContainerData data;
     protected Player player;
     protected BlockPos blockPos;
-    private final NonNullList<ItemStack> lastInventorySnapshot;
     public String sortType;
     public int handlers;
+    private RefreshJob refreshJob;
 
     public SmartCraftingMenu(int containerID, Inventory inventory, FriendlyByteBuf extraData) {
         this(containerID, inventory, extraData.readBlockPos(), new SimpleContainerData(2));
@@ -61,19 +70,14 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         this.blockPos = blockPos;
         this.level = inventory.player.level();
         this.data = data;
-        this.sortType = String.valueOf(player.getPersistentData().getString("smart_crafting_sort_type"));
-
-        this.lastInventorySnapshot = NonNullList.withSize(player.getInventory().getNonEquipmentItems().size(), ItemStack.EMPTY);
-        for (int i = 0; i < player.getInventory().getNonEquipmentItems().size(); i++) {
-            this.lastInventorySnapshot.set(i, player.getInventory().getItem(i).copy());
-        }
+        this.sortType = PlayerData.getSortType(player);
 
         if (!level.isClientSide()) {
+            ServerPlayer serverPlayer = (ServerPlayer) inventory.player;
+            PacketDistributor.sendToPlayer(serverPlayer, new SyncSortTypeClient(sortType));
+            PacketDistributor.sendToPlayer(serverPlayer, new SyncRecursiveClient(PlayerData.isRecursive(player)));
+            PacketDistributor.sendToPlayer(serverPlayer, new SyncFavoriteRecipesClient(new ArrayList<>(PlayerData.getFavorites(player))));
             updateValidRecipes();
-            PacketDistributor.sendToPlayer((ServerPlayer) inventory.player, new SyncSortTypeClient(player.getPersistentData().getStringOr("smart_crafting_sort_type", "")));
-            ListTag listTag = player.getPersistentData().getListOrEmpty(FAVORITES_TAG);
-            List<String> favorites = listTag.stream().map(Tag::toString).toList();
-            PacketDistributor.sendToPlayer((ServerPlayer) inventory.player, new SyncFavoriteRecipesClient(favorites));
         }
 
         checkContainerSize(inventory, 2);
@@ -82,67 +86,194 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         addDataSlots(data);
     }
 
+    /** Starts working out the craftable recipes, the results are sent to the client a few at a time. */
     public void updateValidRecipes() {
         if (level.isClientSide()) return;
 
-        List<Identifier> recipeIds = getValidRecipeIds();
-        sendRecipesToClient(recipeIds);
+        refreshJob = new RefreshJob((ServerLevel) level);
     }
 
-    private void sendRecipesToClient(List<Identifier> recipeIds) {
-        PacketDistributor.sendToPlayer((ServerPlayer) player, new SmartCraftingRecipePayload(recipeIds));
-    }
+    @Override
+    public void broadcastChanges() {
+        super.broadcastChanges();
 
-    public List<Identifier> getValidRecipeIds() {
-        if (level.isClientSide()) return Collections.emptyList();
-
-        Container inv = buildCombinedInventory();
-        List<Identifier> results = new ArrayList<>();
-
-        for (Map.Entry<Identifier, CraftingRecipe> entry : VanillaRecipeCache.cachedCraftingRecipes.entrySet()) {
-            CraftingRecipe recipe = entry.getValue();
-            if (recipeHasMatchingIngredients(recipe, inv) && canCraftFromInventory(recipe, inv)) {
-                results.add(entry.getKey());
+        if (refreshJob != null && player instanceof ServerPlayer serverPlayer) {
+            boolean finished = refreshJob.run(System.nanoTime() + REFRESH_BUDGET_NANOS);
+            refreshJob.flush(serverPlayer, finished);
+            if (finished) {
+                refreshJob = null;
             }
         }
-
-        for (Map.Entry<Identifier, StonecutterRecipe> entry : VanillaRecipeCache.cachedStonecutterRecipes.entrySet()) {
-            StonecutterRecipe recipe = entry.getValue();
-            if (recipeHasMatchingIngredients(recipe, inv) && canCraftStonecutterFromInventory(recipe, inv)) {
-                results.add(entry.getKey());
-            }
-        }
-
-        return results;
-
     }
 
-    private List<IItemHandler> findConnectedItemHandlers() {
-        List<IItemHandler> itemHandlers = new ArrayList<>();
+    private static final long REFRESH_BUDGET_NANOS = 4_000_000L;
+
+    private class RefreshJob {
+        private static final int SETUP = 0, CRAFTING = 1, STONECUTTING = 2, SMITHING = 3, REACHABLE = 4, RECURSIVE = 5, DONE = 6;
+
+        private final ServerLevel serverLevel;
+        private final boolean recursive = isRecursiveEnabled();
+        private final int maxDepth = SmartCraftingConfig.recursiveCraftingMaxDepth.get();
+
+        private int phase = SETUP;
+        private int index = 0;
+
+        private Container inv;
+        private List<ItemStack> inventoryStacks;
+        private Set<Item> present;
+        private List<RecursivePlanner.RecipeInfo> infos;
+        private List<RecipeHolder<StonecutterRecipe>> stonecutterRecipes;
+        private List<RecipeHolder<SmithingRecipe>> smithingRecipes;
+        private RecursivePlanner.ReachabilityJob reachability;
+        private final Set<Identifier> directlyCraftable = new HashSet<>();
+
+        private boolean sentFirst = false;
+        private final List<Identifier> outIds = new ArrayList<>();
+        private final List<ItemStack> outBases = new ArrayList<>();
+        private final List<List<ItemStack>> outIntermediates = new ArrayList<>();
+
+        RefreshJob(ServerLevel serverLevel) {
+            this.serverLevel = serverLevel;
+        }
+
+        private void add(Identifier id, ItemStack base, List<ItemStack> intermediates) {
+            outIds.add(id);
+            outBases.add(base);
+            outIntermediates.add(intermediates);
+        }
+
+        /** @return true when everything has been checked */
+        boolean run(long deadline) {
+            while (phase != DONE && System.nanoTime() < deadline) {
+                switch (phase) {
+                    case SETUP -> {
+                        invalidateHandlerCache();
+                        inv = buildCombinedInventory();
+                        inventoryStacks = containerStacks(inv);
+                        present = new HashSet<>();
+                        for (ItemStack stack : inventoryStacks) {
+                            present.add(stack.getItem());
+                        }
+                        infos = RecursivePlanner.infos(serverLevel);
+                        RecipeMap recipeMap = serverLevel.recipeAccess().recipeMap();
+                        stonecutterRecipes = isStonecutterNearby(player) ? new ArrayList<>(recipeMap.byType(RecipeType.STONECUTTING)) : List.of();
+                        smithingRecipes = isSmithingTableNearby(player) ? new ArrayList<>(recipeMap.byType(RecipeType.SMITHING)) : List.of();
+                        phase = CRAFTING;
+                    }
+                    case CRAFTING -> {
+                        if (index >= infos.size()) {
+                            next(STONECUTTING);
+                            break;
+                        }
+                        RecursivePlanner.RecipeInfo info = infos.get(index++);
+                        if (info.possibleWith(present) && canCraftFromInventory(info.holder().value(), inv)) {
+                            Identifier id = info.holder().id().identifier();
+                            directlyCraftable.add(id);
+                            add(id, ItemStack.EMPTY, List.of());
+                        }
+                    }
+                    case STONECUTTING -> {
+                        if (index >= stonecutterRecipes.size()) {
+                            next(SMITHING);
+                            break;
+                        }
+                        RecipeHolder<StonecutterRecipe> holder = stonecutterRecipes.get(index++);
+                        if (recipeHasMatchingIngredients(holder.value(), inv) && canCraftStonecutterFromInventory(holder.value(), inv)) {
+                            add(holder.id().identifier(), ItemStack.EMPTY, List.of());
+                        }
+                    }
+                    case SMITHING -> {
+                        if (index >= smithingRecipes.size()) {
+                            if (recursive) {
+                                reachability = new RecursivePlanner.ReachabilityJob(serverLevel, present, maxDepth);
+                                next(REACHABLE);
+                            } else {
+                                next(DONE);
+                            }
+                            break;
+                        }
+                        RecipeHolder<SmithingRecipe> holder = smithingRecipes.get(index++);
+                        SmithingRecipeInput input = buildSmithingInput(holder.value(), inv);
+                        if (input != null && holder.value().matches(input, level) && !holder.value().assemble(input).isEmpty()) {
+                            add(holder.id().identifier(), input.base(), List.of());
+                        }
+                    }
+                    case REACHABLE -> {
+                        if (reachability.step(deadline)) {
+                            next(RECURSIVE);
+                        }
+                    }
+                    case RECURSIVE -> {
+                        if (index >= infos.size()) {
+                            next(DONE);
+                            break;
+                        }
+                        RecursivePlanner.RecipeInfo info = infos.get(index++);
+                        Identifier id = info.holder().id().identifier();
+                        if (!directlyCraftable.contains(id) && info.possibleWith(reachability.result())) {
+                            RecursivePlanner.Plan plan = RecursivePlanner.plan(serverLevel, info, inventoryStacks, maxDepth);
+                            if (plan != null && !plan.steps().isEmpty()) {
+                                add(id, ItemStack.EMPTY, plan.intermediates());
+                            }
+                        }
+                    }
+                    default -> phase = DONE;
+                }
+            }
+            return phase == DONE;
+        }
+
+        private void next(int nextPhase) {
+            phase = nextPhase;
+            index = 0;
+        }
+
+        /** Sends what has been found since the last flush, the first batch replaces the client's list. */
+        void flush(ServerPlayer serverPlayer, boolean finished) {
+            if (sentFirst && outIds.isEmpty() && !finished) return;
+
+            PacketDistributor.sendToPlayer(serverPlayer, new SmartCraftingRecipePayload(
+                    List.copyOf(outIds), List.copyOf(outBases), List.copyOf(outIntermediates), !sentFirst, finished));
+            sentFirst = true;
+            outIds.clear();
+            outBases.clear();
+            outIntermediates.clear();
+        }
+    }
+
+    private List<ResourceHandler<ItemResource>> handlerCache;
+
+    private void invalidateHandlerCache() {
+        handlerCache = null;
+    }
+
+    private List<ResourceHandler<ItemResource>> findConnectedItemHandlers() {
+        if (handlerCache != null) return handlerCache;
+
+        List<ResourceHandler<ItemResource>> itemHandlers = new ArrayList<>();
         final int radius = SmartCraftingConfig.storageRangeCheck.get();
 
         BlockPos.betweenClosedStream(
                 blockPos.offset(-radius, -radius / 2, -radius),
                 blockPos.offset(radius, radius / 2, radius)
-        ).forEach(pos -> {
+        ).forEach(mutablePos -> {
+            BlockPos pos = mutablePos.immutable();
             BlockEntity be = level.getBlockEntity(pos);
-            if (be != null && level.getBlockState(pos).is(SmartCraftingTags.Blocks.WHITELISTED_STORAGE)) {
+            if (be != null && (level.getBlockState(pos).is(SmartCraftingTags.Blocks.WHITELISTED_STORAGE) || isAllowedViaConfig(level.getBlockState(pos).getBlock())) && canAccessBlock(pos)) {
 
                 if (be instanceof ChestBlockEntity chest) {
 
                     ChestType type = chest.getBlockState().getValue(ChestBlock.TYPE);
                     if (type != ChestType.SINGLE) {
                         Direction dir = ChestBlock.getConnectedDirection(chest.getBlockState());
-                        if (dir != null) {
-                            BlockPos otherPos = pos.relative(dir);
-                            if (otherPos.compareTo(pos) < 0) {
-                                return;
-                            }
+                        BlockPos otherPos = pos.relative(dir);
+                        if (otherPos.compareTo(pos) < 0) {
+                            return;
                         }
                     }
                 }
 
-                IItemHandler handler = IItemHandler.of(Objects.requireNonNull(Capabilities.Item.BLOCK.getCapability(level, pos, level.getBlockState(pos), be, null)));
+                ResourceHandler<ItemResource> handler = Capabilities.Item.BLOCK.getCapability(level, pos, level.getBlockState(pos), be, null);
                 if (handler != null) {
                     itemHandlers.add(handler);
                 }
@@ -150,12 +281,28 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         });
 
         handlers = itemHandlers.size();
-
-        //System.out.println(handlers);
+        handlerCache = itemHandlers;
 
         return itemHandlers;
     }
 
+    private static boolean isAllowedViaConfig(Block block) {
+        Identifier blockId = BuiltInRegistries.BLOCK.getKey(block);
+
+        for (String id : SmartCraftingConfig.validStorageBlocks.get()) {
+            if (blockId.toString().equalsIgnoreCase(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean canAccessBlock(BlockPos pos) {
+        if (!(player instanceof ServerPlayer serverPlayer)) {
+            return false;
+        }
+        return FTBChunksCompat.canAccess(serverPlayer, pos);
+    }
 
     private Container buildCombinedInventory() {
         List<ItemStack> combinedStacks = new ArrayList<>();
@@ -167,12 +314,13 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
             }
         }
 
-        //IItem Handlers
-        for (IItemHandler handler : findConnectedItemHandlers()) {
-            for (int i = 0; i < handler.getSlots(); i++) {
-                ItemStack stack = handler.getStackInSlot(i);
-                if (!stack.isEmpty()) {
-                    combinedStacks.add(stack.copy());
+        //Nearby Storage
+        for (ResourceHandler<ItemResource> handler : findConnectedItemHandlers()) {
+            for (int i = 0; i < handler.size(); i++) {
+                ItemResource resource = handler.getResource(i);
+                int amount = handler.getAmountAsInt(i);
+                if (!resource.isEmpty() && amount > 0) {
+                    combinedStacks.add(resource.toStack(amount));
                 }
             }
         }
@@ -185,36 +333,41 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         return combined;
     }
 
-
-    private boolean consumeIngredientFromAll(Ingredient ingredient, int count) {
+    private boolean consumeIngredientFromAll(Predicate<ItemStack> ingredient, int count) {
         int remaining = count;
 
-        // Player Inventory
-        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
-            ItemStack stack = player.getInventory().getItem(i);
+        // Player Inventory first
+        Inventory playerInventory = player.getInventory();
+        for (int i = 0; i < playerInventory.getContainerSize(); i++) {
+            ItemStack stack = playerInventory.getItem(i);
             if (!stack.isEmpty() && ingredient.test(stack)) {
                 int toTake = Math.min(stack.getCount(), remaining);
                 stack.shrink(toTake);
                 if (stack.isEmpty()) {
-                    player.getInventory().setItem(i, ItemStack.EMPTY);
+                    playerInventory.setItem(i, ItemStack.EMPTY);
                 }
                 remaining -= toTake;
                 if (remaining <= 0) return true;
             }
         }
 
-        // IItem Handlers
-        for (IItemHandler handler : findConnectedItemHandlers()) {
-            for (int i = 0; i < handler.getSlots(); i++) {
-                ItemStack stack = handler.getStackInSlot(i);
-                if (!stack.isEmpty() && ingredient.test(stack)) {
-                    int toTake = Math.min(stack.getCount(), remaining);
-                    ItemStack extracted = handler.extractItem(i, toTake, false);
-                    if (!extracted.isEmpty()) {
-                        remaining -= extracted.getCount();
-                        if (remaining <= 0) return true;
+        // Nearby Storage
+        for (ResourceHandler<ItemResource> handler : findConnectedItemHandlers()) {
+            for (int i = 0; i < handler.size(); i++) {
+                ItemResource resource = handler.getResource(i);
+                if (resource.isEmpty() || !ingredient.test(resource.toStack(1))) continue;
+
+                int toTake = Math.min(handler.getAmountAsInt(i), remaining);
+                if (toTake <= 0) continue;
+
+                try (Transaction transaction = Transaction.openRoot()) {
+                    int extracted = handler.extract(i, resource, toTake, transaction);
+                    if (extracted > 0) {
+                        transaction.commit();
+                        remaining -= extracted;
                     }
                 }
+                if (remaining <= 0) return true;
             }
         }
 
@@ -222,14 +375,21 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     }
 
     private boolean isStonecutterNearby(Player player) {
-        final int radius = SmartCraftingConfig.stonecutterRangeCheck.get();
+        return isBlockNearby(player, Blocks.STONECUTTER, SmartCraftingConfig.stonecutterRangeCheck.get());
+    }
+
+    private boolean isSmithingTableNearby(Player player) {
+        return isBlockNearby(player, Blocks.SMITHING_TABLE, SmartCraftingConfig.smithingTableRangeCheck.get());
+    }
+
+    private boolean isBlockNearby(Player player, Block block, int radius) {
         BlockPos playerPos = player.blockPosition();
 
         for (int dx = -radius; dx <= radius; dx++) {
-            for (int dy = -radius; dy <= radius; dy++) { // Now full radius vertically
+            for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     BlockPos checkPos = playerPos.offset(dx, dy, dz);
-                    if (level.getBlockState(checkPos).is(Blocks.STONECUTTER)) {
+                    if (level.getBlockState(checkPos).is(block)) {
                         return true;
                     }
                 }
@@ -241,6 +401,51 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     private boolean canCraftFromInventory(CraftingRecipe recipe, Container inv) {
         CraftingInput input = buildCraftingInputForRecipe(recipe, inv);
         return recipe.matches(input, level);
+    }
+
+    private ItemStack findStackFor(Ingredient ingredient, Container inv, int[] usedSlots) {
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack stack = inv.getItem(i);
+            if (!stack.isEmpty() && usedSlots[i] < stack.getCount() && ingredient.test(stack)) {
+                usedSlots[i]++;
+                return stack.copyWithCount(1);
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private SmithingRecipeInput buildSmithingInput(SmithingRecipe recipe, Container inv) {
+        int[] usedSlots = new int[inv.getContainerSize()];
+        ItemStack template = ItemStack.EMPTY;
+        ItemStack addition = ItemStack.EMPTY;
+
+        if (recipe.templateIngredient().isPresent()) {
+            template = findStackFor(recipe.templateIngredient().get(), inv, usedSlots);
+            if (template.isEmpty()) return null;
+        }
+
+        ItemStack base = findStackFor(recipe.baseIngredient(), inv, usedSlots);
+        if (base.isEmpty()) return null;
+
+        if (recipe.additionIngredient().isPresent()) {
+            addition = findStackFor(recipe.additionIngredient().get(), inv, usedSlots);
+            if (addition.isEmpty()) return null;
+        }
+
+        return new SmithingRecipeInput(template, base, addition);
+    }
+
+    private boolean canCraftSmithingFromInventory(SmithingRecipe recipe, Container inv) {
+        SmithingRecipeInput input = buildSmithingInput(recipe, inv);
+        return input != null && recipe.matches(input, level) && !recipe.assemble(input).isEmpty();
+    }
+
+    private boolean consumeExact(ItemStack sample) {
+        return !sample.isEmpty() && consumeIngredientFromAll(stack -> ItemStack.isSameItemSameComponents(stack, sample), 1);
+    }
+
+    private void playCraftSound(SoundEvent sound, float volume) {
+        level.playSound(null, player.blockPosition(), sound, SoundSource.PLAYERS, volume, 1.0F);
     }
 
     private boolean canCraftStonecutterFromInventory(StonecutterRecipe recipe, Container inv) {
@@ -266,14 +471,16 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
         if (recipe instanceof ShapedRecipe shaped) {
             int width = shaped.getWidth();
             int height = shaped.getHeight();
+            // placementInfo drops the empty slots of a shaped recipe, so use the real pattern
+            List<Optional<Ingredient>> pattern = shaped.getIngredients();
 
             for (int row = 0; row < height; row++) {
                 for (int col = 0; col < width; col++) {
                     int recipeIndex = row * width + col;
                     int gridIndex = row * 3 + col;
 
-                    if (recipeIndex >= ingredients.size()) continue;
-                    Ingredient ing = ingredients.get(recipeIndex);
+                    if (recipeIndex >= pattern.size() || pattern.get(recipeIndex).isEmpty()) continue;
+                    Ingredient ing = pattern.get(recipeIndex).get();
                     if (ing.isEmpty()) continue;
 
                     for (int i = 0; i < inv.getContainerSize(); i++) {
@@ -315,186 +522,256 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     }
 
     public void craftRecipeById(Identifier recipeId, boolean shiftClick) {
-        if (level.isClientSide()) return;
+        if (!(level instanceof ServerLevel serverLevel)) return;
+        invalidateHandlerCache();
 
-        CraftingRecipe craftingRecipe = VanillaRecipeCache.cachedCraftingRecipes.get(recipeId);
-        if (craftingRecipe != null) {
-            int maxCrafts = shiftClick ? getMaxCraftableAmount(craftingRecipe) : 1;
+        Optional<RecipeHolder<?>> optionalRecipe = serverLevel.recipeAccess().byKey(ResourceKey.create(Registries.RECIPE, recipeId));
+        if (optionalRecipe.isEmpty()) return;
+
+        Recipe<?> recipe = optionalRecipe.get().value();
+
+        if (recipe instanceof CraftingRecipe craftingRecipe) {
+            boolean recursive = isRecursiveEnabled();
+            int maxCrafts = shiftClick ? (recursive ? 64 : getMaxCraftableAmount(craftingRecipe)) : 1;
+            ItemStack lastResult = ItemStack.EMPTY;
 
             for (int i = 0; i < maxCrafts; i++) {
-                Container combinedInv = buildCombinedInventory();
-                CraftingInput input = buildCraftingInputForRecipe(craftingRecipe, combinedInv);
+                if (!lastResult.isEmpty() && getFreeSpaceForItem(lastResult) < lastResult.getCount()) break;
 
-                if (!craftingRecipe.matches(input, level)) break;
-
-                ItemStack result = craftingRecipe.assemble(input, level.registryAccess());
-                if (!player.getInventory().add(result.copy())) player.drop(result.copy(), false);
-
-                Map<Ingredient, Integer> ingredientCounts = new HashMap<>();
-                for (Ingredient ingredient : craftingRecipe.placementInfo().ingredients()) {
-                    if (!ingredient.isEmpty()) {
-                        ingredientCounts.put(ingredient, ingredientCounts.getOrDefault(ingredient, 0) + 1);
-                    }
+                ItemStack made = craftOnce(craftingRecipe);
+                if (made.isEmpty() && recursive) {
+                    if (!craftPrerequisites(serverLevel, optionalRecipe.get().id().identifier())) break;
+                    made = craftOnce(craftingRecipe);
                 }
-
-                for (Map.Entry<Ingredient, Integer> entry : ingredientCounts.entrySet()) {
-                    if (!consumeIngredientFromAll(entry.getKey(), entry.getValue())) return;
-                }
-
-                NonNullList<ItemStack> remainders = craftingRecipe.getRemainingItems(input);
-                for (ItemStack remainder : remainders) {
-                    if (!remainder.isEmpty() && !player.getInventory().add(remainder)) {
-                        player.drop(remainder, false);
-                    }
-                }
+                if (made.isEmpty()) break;
+                lastResult = made;
             }
 
-            player.playSound(SoundEvents.LEVER_CLICK);
-
-           // level.playLocalSound(this.blockPos, SoundEvents.LEVER_CLICK, player.getSoundSource(), 1.0F, 1.0F, false);
+            playCraftSound(SoundEvents.UI_LOOM_TAKE_RESULT, 1.0F);
             player.getInventory().setChanged();
             player.inventoryMenu.broadcastChanges();
             updateValidRecipes();
             return;
         }
 
-        StonecutterRecipe stonecutterRecipe = VanillaRecipeCache.cachedStonecutterRecipes.get(recipeId);
-        if (stonecutterRecipe != null) {
+        if (recipe instanceof StonecutterRecipe stonecutterRecipe) {
             int maxCrafts = shiftClick ? getMaxCraftableAmountStonecutter(stonecutterRecipe) : 1;
 
             for (int i = 0; i < maxCrafts; i++) {
                 Container combinedInv = buildCombinedInventory();
                 if (!canCraftStonecutterFromInventory(stonecutterRecipe, combinedInv)) break;
 
-                ItemStack result = stonecutterRecipe.assemble(null, level.registryAccess());
-                if (!player.getInventory().add(result.copy())) player.drop(result.copy(), false);
+                ItemStack resultToGive = stonecutterRecipe.assemble(new SingleRecipeInput(ItemStack.EMPTY)).copy();
 
-                Ingredient ingredient = stonecutterRecipe.placementInfo().ingredients().getFirst();
-                if (!consumeIngredientFromAll(ingredient, 1)) break;
+                if (!player.getInventory().add(resultToGive)) {
+                    player.drop(resultToGive, false);
+                }
+
+                if (!consumeIngredientFromAll(stonecutterRecipe.input(), 1)) break;
             }
 
-            player.playSound(SoundEvents.UI_STONECUTTER_TAKE_RESULT, 1.0F, 1.0F);
+            playCraftSound(SoundEvents.UI_STONECUTTER_TAKE_RESULT, 1.0F);
+            player.getInventory().setChanged();
+            player.inventoryMenu.broadcastChanges();
+            updateValidRecipes();
+            return;
+        }
+
+        if (recipe instanceof SmithingRecipe smithingRecipe) {
+            int maxCrafts = shiftClick ? 64 : 1;
+            int crafted = 0;
+
+            for (int i = 0; i < maxCrafts; i++) {
+                Container combinedInv = buildCombinedInventory();
+                SmithingRecipeInput input = buildSmithingInput(smithingRecipe, combinedInv);
+                if (input == null || !smithingRecipe.matches(input, level)) break;
+
+                ItemStack result = smithingRecipe.assemble(input).copy();
+                if (result.isEmpty()) break;
+                if (i > 0 && getFreeSpaceForItem(result) < result.getCount()) break;
+
+                if (!consumeExact(input.template()) && !input.template().isEmpty()) break;
+                if (!consumeExact(input.base())) break;
+                if (!consumeExact(input.addition()) && !input.addition().isEmpty()) break;
+
+                if (!player.getInventory().add(result)) {
+                    player.drop(result, false);
+                }
+                crafted++;
+            }
+
+            if (crafted > 0) {
+                playCraftSound(SoundEvents.ANVIL_USE, 0.6F);
+            }
             player.getInventory().setChanged();
             player.inventoryMenu.broadcastChanges();
             updateValidRecipes();
         }
     }
 
-
-
-    private boolean recipeHasMatchingIngredients(Recipe<?> recipe, Container inv) {
-
-        if (recipe instanceof CraftingRecipe craftingRecipe) {
-            for (Ingredient ingredient : craftingRecipe.placementInfo().ingredients()) {
-                if (ingredient.isEmpty()) continue;
-                boolean found = false;
-                for (int i = 0; i < inv.getContainerSize(); i++) {
-                    ItemStack stack = inv.getItem(i);
-                    if (!stack.isEmpty() && ingredient.test(stack)) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) return false;
-            }
-            return true;
-        }
-
-        else if (recipe instanceof StonecutterRecipe stonecutterRecipe) {
-            for (Ingredient ingredient : stonecutterRecipe.placementInfo().ingredients()) {
-                if (ingredient.isEmpty()) continue;
-                boolean found = false;
-                for (int i = 0; i < inv.getContainerSize(); i++) {
-                    ItemStack stack = inv.getItem(i);
-                    if (!stack.isEmpty() && ingredient.test(stack)) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) return false;
-            }
-            return true;
-        }
-
-        return false;
+    private boolean isRecursiveEnabled() {
+        return SmartCraftingConfig.recursiveCraftingEnabled.get() && PlayerData.isRecursive(player);
     }
 
+    private static List<ItemStack> containerStacks(Container container) {
+        List<ItemStack> stacks = new ArrayList<>(container.getContainerSize());
+        for (int i = 0; i < container.getContainerSize(); i++) {
+            stacks.add(container.getItem(i));
+        }
+        return stacks;
+    }
 
-    private int getMaxCraftableAmount(CraftingRecipe recipe) {
-        Container inv = buildCombinedInventory();
-        int max = Integer.MAX_VALUE;
+    /** Crafts the recipe once from the player's items and nearby storage, returns the result or empty if it failed. */
+    private ItemStack craftOnce(CraftingRecipe craftingRecipe) {
+        Container combinedInv = buildCombinedInventory();
+        CraftingInput input = buildCraftingInputForRecipe(craftingRecipe, combinedInv);
+        if (!craftingRecipe.matches(input, level)) return ItemStack.EMPTY;
+
+        ItemStack result = craftingRecipe.assemble(input).copy();
+        if (result.isEmpty()) return ItemStack.EMPTY;
+
+        for (Map.Entry<Ingredient, Integer> entry : RecursivePlanner.groupIngredients(craftingRecipe).entrySet()) {
+            if (!consumeIngredientFromAll(entry.getKey(), entry.getValue())) {
+                return ItemStack.EMPTY;
+            }
+        }
+
+        if (!player.getInventory().add(result.copy())) {
+            player.drop(result.copy(), false);
+        }
+
+        for (ItemStack remainder : craftingRecipe.getRemainingItems(input)) {
+            if (!remainder.isEmpty() && !player.getInventory().add(remainder)) {
+                player.drop(remainder, false);
+            }
+        }
+
+        return result;
+    }
+
+    /** Crafts the intermediate items (eg logs -> planks) that the recipe needs. */
+    private boolean craftPrerequisites(ServerLevel serverLevel, Identifier recipeId) {
+        RecursivePlanner.RecipeInfo info = RecursivePlanner.info(serverLevel, recipeId);
+        if (info == null) return false;
+
+        RecursivePlanner.Plan plan = RecursivePlanner.plan(serverLevel, info, containerStacks(buildCombinedInventory()),
+                SmartCraftingConfig.recursiveCraftingMaxDepth.get());
+        if (plan == null) return false;
+
+        for (RecursivePlanner.Step step : plan.steps()) {
+            for (int i = 0; i < step.crafts(); i++) {
+                if (craftOnce(step.holder().value()).isEmpty()) return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean recipeHasMatchingIngredients(Recipe<?> recipe, Container inv) {
+        if (!(recipe instanceof CraftingRecipe) && !(recipe instanceof StonecutterRecipe)) return false;
 
         for (Ingredient ingredient : recipe.placementInfo().ingredients()) {
             if (ingredient.isEmpty()) continue;
+            boolean found = false;
+            for (int i = 0; i < inv.getContainerSize(); i++) {
+                ItemStack stack = inv.getItem(i);
+                if (!stack.isEmpty() && ingredient.test(stack)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
 
+    private int getMaxCraftableAmount(CraftingRecipe recipe) {
+        Container inv = buildCombinedInventory();
+
+        Map<Ingredient, Integer> ingredientCounts = new HashMap<>();
+        for (Ingredient ingredient : recipe.placementInfo().ingredients()) {
+            if (!ingredient.isEmpty()) {
+                ingredientCounts.merge(ingredient, 1, Integer::sum);
+            }
+        }
+        if (ingredientCounts.isEmpty()) return 0;
+
+        int max = Integer.MAX_VALUE;
+        for (Map.Entry<Ingredient, Integer> entry : ingredientCounts.entrySet()) {
             int count = 0;
             for (int i = 0; i < inv.getContainerSize(); i++) {
                 ItemStack stack = inv.getItem(i);
-                if (ingredient.test(stack)) {
+                if (!stack.isEmpty() && entry.getKey().test(stack)) {
                     count += stack.getCount();
                 }
             }
-
-            max = Math.min(max, count);
+            max = Math.min(max, count / entry.getValue());
         }
 
-        return Math.max(0, Math.min(max, 64));
+        max = Math.clamp(max, 0, 64);
+        if (max <= 0) return 0;
+
+        CraftingInput input = buildCraftingInputForRecipe(recipe, inv);
+        if (recipe.matches(input, level)) {
+            ItemStack sampleResult = recipe.assemble(input);
+            if (!sampleResult.isEmpty()) {
+                int resultCountPerCraft = Math.max(1, sampleResult.getCount());
+                max = Math.min(max, getFreeSpaceForItem(sampleResult) / resultCountPerCraft);
+            }
+        }
+
+        return Math.max(0, max);
+    }
+
+    private int getFreeSpaceForItem(ItemStack sample) {
+        int space = 0;
+        int maxStackSize = sample.getMaxStackSize();
+
+        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
+            if (stack.isEmpty()) {
+                space += maxStackSize;
+            } else if (ItemStack.isSameItemSameComponents(stack, sample)) {
+                space += Math.max(0, maxStackSize - stack.getCount());
+            }
+        }
+
+        return space;
     }
 
     private int getMaxCraftableAmountStonecutter(StonecutterRecipe recipe) {
-        Ingredient ingredient = recipe.placementInfo().ingredients().getFirst();
+        Ingredient ingredient = recipe.input();
         if (ingredient.isEmpty()) return 0;
 
         int count = 0;
 
-        for (IItemHandler handler : findConnectedItemHandlers()) {
-            for (int i = 0; i < handler.getSlots(); i++) {
-                ItemStack stack = handler.getStackInSlot(i);
-                if (!stack.isEmpty() && ingredient.test(stack)) {
-                    count += stack.getCount();
+        for (ResourceHandler<ItemResource> handler : findConnectedItemHandlers()) {
+            for (int i = 0; i < handler.size(); i++) {
+                ItemResource resource = handler.getResource(i);
+                if (!resource.isEmpty() && ingredient.test(resource.toStack(1))) {
+                    count += handler.getAmountAsInt(i);
                 }
             }
         }
 
-        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
-            ItemStack stack = player.getInventory().getItem(i);
+        for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {
             if (!stack.isEmpty() && ingredient.test(stack)) {
                 count += stack.getCount();
             }
         }
 
-        return Math.max(0, Math.min(count, 64));
-    }
+        int max = Math.clamp(count, 0, 64);
+        if (max <= 0) return 0;
 
-
-    @Override
-    public void broadcastChanges() {
-        super.broadcastChanges();
-
-        if (level.isClientSide()) return;
-
-        boolean changed = false;
-        List<ItemStack> current = player.getInventory().getNonEquipmentItems();
-
-        for (int i = 0; i < current.size(); i++) {
-            ItemStack oldStack = lastInventorySnapshot.get(i);
-            ItemStack newStack = current.get(i);
-
-            if (!ItemStack.matches(oldStack, newStack)) {
-                changed = true;
-                break;
-            }
+        ItemStack sampleResult = recipe.assemble(new SingleRecipeInput(ItemStack.EMPTY));
+        if (!sampleResult.isEmpty()) {
+            int resultCountPerCraft = Math.max(1, sampleResult.getCount());
+            max = Math.min(max, getFreeSpaceForItem(sampleResult) / resultCountPerCraft);
         }
 
-        if (changed) {
-            for (int i = 0; i < current.size(); i++) {
-                lastInventorySnapshot.set(i, current.get(i).copy());
-            }
-        }
+        return Math.max(0, max);
     }
 
     @Override
-    public @NotNull ItemStack quickMoveStack(Player p_38941_, int p_38942_) {
+    public @NotNull ItemStack quickMoveStack(Player player, int index) {
         return ItemStack.EMPTY;
     }
 
@@ -506,14 +783,14 @@ public class SmartCraftingMenu extends AbstractContainerMenu {
     private void addPlayerInventory(Inventory playerInventory) {
         for (int i = 0; i < 3; ++i) {
             for (int l = 0; l < 9; ++l) {
-                this.addSlot(new Slot(playerInventory, l + i * 9 + 9, 8 + l * 18, 84 + i * 18));
+                this.addSlot(new Slot(playerInventory, l + i * 9 + 9, 8 + l * 18, 98 + i * 18));
             }
         }
     }
 
     private void addPlayerHotbar(Inventory playerInventory) {
         for (int i = 0; i < 9; ++i) {
-            this.addSlot(new Slot(playerInventory, i, 8 + i * 18, 142));
+            this.addSlot(new Slot(playerInventory, i, 8 + i * 18, 156));
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.benbenlaw.smartcrafting.networking.packets;
 
 import com.benbenlaw.smartcrafting.SmartCrafting;
+import com.benbenlaw.smartcrafting.util.PlayerData;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -15,7 +16,7 @@ public record SyncSortTypeClient(String sortType) implements CustomPacketPayload
 
     public static final IPayloadHandler<SyncSortTypeClient> HANDLER = (pkt, ctx) -> {
         Player player = ctx.player();
-        player.getPersistentData().putString("smart_crafting_sort_type", pkt.sortType);
+        PlayerData.setSortType(player, pkt.sortType);
     };
 
     public static final StreamCodec<RegistryFriendlyByteBuf, SyncSortTypeClient> STREAM_CODEC = StreamCodec.composite(

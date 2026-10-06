@@ -1,12 +1,10 @@
-import net.darkhax.curseforgegradle.TaskPublishCurseForge
-
 plugins {
     id 'java-library'
     id 'eclipse'
     id 'idea'
     id 'maven-publish'
-    id 'net.neoforged.moddev' version '2.0.115'
-    id 'net.darkhax.curseforgegradle' version '1.1.25'
+    id 'net.neoforged.moddev' version '2.0.148'
+    id 'net.darkhax.curseforgegradle' version '1.1.24'
     id "com.modrinth.minotaur" version "2.+"
 }
 
@@ -23,9 +21,18 @@ repositories {
             includeGroup("curse.maven")
         }
     }
+
     maven {
         name = "Jared's maven"
         url = "https://maven.blamejared.com/"
+    }
+    maven {
+        name = "Curios"
+        url = "https://maven.theillusivec4.top/"
+    }
+    maven {
+        name = "FTB"
+        url = "https://maven.ftb.dev/releases"
     }
     maven {
         name = "ModMaven"
@@ -36,18 +43,10 @@ base {
     archivesName = mod_id
 }
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(21)
-
-
-
+java.toolchain.languageVersion = JavaLanguageVersion.of(25)
 
 neoForge {
     version = project.neo_version
-
-    parchment {
-        minecraftVersion = parchment_minecraft
-        mappingsVersion = parchment_version
-    }
 
     runs {
         configureEach {
@@ -83,8 +82,15 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 dependencies {
 
-    implementation("mezz.jei:jei-${jei_mc_version}:${jei_version}")
-    implementation("curse.maven:bblcore-1135181:7391788")
+    implementation("mezz.jei:jei-${jei_mc_version}-neoforge:${jei_version}")
+
+    //Curios
+    implementation("top.theillusivec4.curios:curios-neoforge:${curios_version}")
+
+    //FTB Chunks (optional)
+    compileOnly("dev.ftb.mods:ftb-chunks-neoforge:${ftb_chunks_version}")
+    compileOnly("dev.ftb.mods:ftb-library-neoforge:${ftb_library_version}")
+    compileOnly("dev.ftb.mods:ftb-teams-neoforge:${ftb_teams_version}")
 
 }
 
@@ -140,42 +146,3 @@ idea {
         downloadJavadoc = true
     }
 }
-
-tasks.register('publishCurseForge', TaskPublishCurseForge) {
-    group "modpublishing"
-
-    apiToken = System.getenv("curseforge_token").toString()
-
-    def projectId = curseforge_id
-    def mainFile = upload(projectId, jar)
-
-    mainFile.changelog = changelog
-    mainFile.releaseType = "${release_type}"
-
-    "${release_versions}".split(',').each {
-        mainFile.addGameVersion("${it}")
-    }
-
-    mainFile.addModLoader("neoforge")
-    mainFile.addEnvironment("server", "client")
-
-}
-
-
-tasks.getByName("modrinth").setGroup("modpublishing")
-
-modrinth {
-    token = System.getenv("modrinth_token").toString()
-    projectId = "${modrinth_id}"
-    versionType = "${release_type}"
-    versionName = "${mod_id}" + "$minecraft_version" + "-" + "$mod_version"
-    uploadFile = jar // With Loom, this MUST be set to `remapJar` instead of `jar`!
-
-    gameVersions = "${release_versions}".split(',').collect {e -> e}
-    loaders = ["neoforge"]
-    changelog = project.changelog
-    dependencies {
-        optional.project "jei"
-    }
-}
-

@@ -1,0 +1,7 @@
+{
+  "block.smartcrafting.smart_crafting_table": "智能工作台",
+  "block.smartcrafting.smart_crafting_table.sort_by_mod": "按名称排序",
+  "block.smartcrafting.smart_crafting_table.sort_by_name": "按模组排序",
+
+  "item.smartcrafting.portable_smart_crafting_table": "便携式智能工作台"
+}

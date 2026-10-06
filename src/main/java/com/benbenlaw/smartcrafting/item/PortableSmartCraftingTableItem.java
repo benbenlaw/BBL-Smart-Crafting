@@ -3,7 +3,6 @@ package com.benbenlaw.smartcrafting.item;
 import com.benbenlaw.smartcrafting.screen.SmartCraftingMenu;
 import com.benbenlaw.smartcrafting.util.KeyBinds;
 import net.minecraft.ChatFormatting;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -38,32 +37,16 @@ public class PortableSmartCraftingTableItem extends Item {
             player.openMenu(new SimpleMenuProvider(
                     (windowId, playerInventory, playerEntity) -> new SmartCraftingMenu(windowId, playerInventory, pos, data),
                     Component.translatable("block.smartcrafting.smart_crafting_table")), (buf -> buf.writeBlockPos(pos)));
-
-            return InteractionResult.SUCCESS;
         }
-        return InteractionResult.FAIL;
+        return InteractionResult.SUCCESS;
     }
 
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, TooltipDisplay tooltipDisplay, Consumer<Component> tooltipAdder, TooltipFlag flag) {
-        if ((Minecraft.getInstance().hasShiftDown())) {
-            KeyMapping button = KeyBinds.OPEN_SMART_CRAFTING_MENU_HOTKEY;
-            tooltipAdder.accept(Component.translatable("tooltip.smartcrafting.button", button.getKey().getDisplayName()).withStyle(ChatFormatting.BLUE));
+        if (Minecraft.getInstance().hasShiftDown()) {
+            tooltipAdder.accept(Component.translatable("tooltip.smartcrafting.button", KeyBinds.OPEN_SMART_CRAFTING_MENU_HOTKEY.getTranslatedKeyMessage()).withStyle(ChatFormatting.BLUE));
         } else {
             tooltipAdder.accept(Component.translatable("tooltip.smartcrafting.shift").withStyle(ChatFormatting.YELLOW));
         }
     }
-
-    /*
-    @Override
-    public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> list, TooltipFlag flag) {
-        if ((Minecraft.getInstance().hasShiftDown())) {
-            KeyMapping button = KeyBinds.OPEN_SMART_CRAFTING_MENU_HOTKEY;
-            list.add(Component.translatable("tooltip.smartcrafting.button", button.getKey().getDisplayName()).withStyle(ChatFormatting.BLUE));
-        } else {
-            list.add(Component.translatable("tooltip.smartcrafting.shift").withStyle(ChatFormatting.YELLOW));
-        }
-    }
-
-     */
 }

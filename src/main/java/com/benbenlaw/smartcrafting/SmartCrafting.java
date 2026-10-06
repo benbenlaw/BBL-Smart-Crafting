@@ -16,7 +16,6 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.ModLoadingContext;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
@@ -32,7 +31,6 @@ import org.apache.logging.log4j.Logger;
 public class SmartCrafting {
     public static final String MOD_ID = "smartcrafting";
     public static final Logger LOGGER = LogManager.getLogger();
-    private BuildCreativeModeTabContentsEvent event;
 
     public SmartCrafting(final IEventBus eventBus, final ModContainer modContainer) {
 
@@ -43,7 +41,7 @@ public class SmartCrafting {
         eventBus.addListener(this::commonSetup);
         eventBus.addListener(this::addCreativeTabContents);
 
-        ModLoadingContext.get().getActiveContainer().registerConfig(ModConfig.Type.STARTUP, SmartCraftingConfig.SPEC, "bbl/smartcrafting.toml");
+        modContainer.registerConfig(ModConfig.Type.STARTUP, SmartCraftingConfig.SPEC, "bbl/smartcrafting.toml");
 
     }
 

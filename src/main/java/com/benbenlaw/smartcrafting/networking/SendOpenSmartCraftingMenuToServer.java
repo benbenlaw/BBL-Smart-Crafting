@@ -2,6 +2,7 @@ package com.benbenlaw.smartcrafting.networking;
 
 import com.benbenlaw.smartcrafting.SmartCrafting;
 import com.benbenlaw.smartcrafting.screen.SmartCraftingMenu;
+import com.benbenlaw.smartcrafting.util.PortableTableUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
@@ -21,17 +22,19 @@ public record SendOpenSmartCraftingMenuToServer(BlockPos pos) implements CustomP
     public static final IPayloadHandler<SendOpenSmartCraftingMenuToServer> HANDLER = (packet, context) -> {
 
         Player player = context.player();
+        if (!PortableTableUtil.hasPortableSmartCraftingTable(player)) return;
+
+        BlockPos pos = player.blockPosition();
         ContainerData data = new SimpleContainerData(2);
         player.openMenu(new SimpleMenuProvider(
-                (windowId, playerInventory, playerEntity) -> new SmartCraftingMenu(windowId, playerInventory, packet.pos, data),
-                Component.translatable("block.smartcrafting.smart_crafting_table")), (buf -> buf.writeBlockPos(packet.pos)));
+                (windowId, playerInventory, playerEntity) -> new SmartCraftingMenu(windowId, playerInventory, pos, data),
+                Component.translatable("block.smartcrafting.smart_crafting_table")), (buf -> buf.writeBlockPos(pos)));
     };
 
     public static final StreamCodec<RegistryFriendlyByteBuf, SendOpenSmartCraftingMenuToServer> STREAM_CODEC = StreamCodec.composite(
             BlockPos.STREAM_CODEC, SendOpenSmartCraftingMenuToServer::pos,
             SendOpenSmartCraftingMenuToServer::new
     );
-
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

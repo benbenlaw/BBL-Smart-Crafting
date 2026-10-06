@@ -3,12 +3,8 @@
   "category": "misc",
   "group": "smart_crafting_table",
   "key": {
-    "A": {
-      "tag": "c:rods/wooden"
-    },
-    "C": {
-      "tag": "c:player_workstations/crafting_tables"
-    }
+    "A": "#c:rods/wooden",
+    "C": "#c:player_workstations/crafting_tables"
   },
   "pattern": [
     "CCC",
@@ -16,7 +12,6 @@
     "CCC"
   ],
   "result": {
-    "count": 1,
     "id": "smartcrafting:smart_crafting_table"
   }
 }

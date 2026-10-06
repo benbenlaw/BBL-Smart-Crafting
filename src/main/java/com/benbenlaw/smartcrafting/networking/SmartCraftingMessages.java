@@ -17,6 +17,9 @@ public class SmartCraftingMessages {
         registrar.playToServer(SmartCraftingRecipeClickPayload.TYPE, SmartCraftingRecipeClickPayload.STREAM_CODEC, SmartCraftingRecipeClickPacket.get()::handle);
         registrar.playToServer(SendOpenSmartCraftingMenuToServer.TYPE, SendOpenSmartCraftingMenuToServer.STREAM_CODEC, SendOpenSmartCraftingMenuToServer.HANDLER);
 
+        registrar.playToServer(SyncRecursive.TYPE, SyncRecursive.STREAM_CODEC, SyncRecursive.HANDLER);
+        registrar.playToClient(SyncRecursiveClient.TYPE, SyncRecursiveClient.STREAM_CODEC, SyncRecursiveClient.HANDLER);
+
         registrar.playToClient(SyncSortTypeClient.TYPE, SyncSortTypeClient.STREAM_CODEC, SyncSortTypeClient.HANDLER);
         registrar.playToClient(SyncFavoriteRecipesClient.TYPE, SyncFavoriteRecipesClient.STREAM_CODEC, SyncFavoriteRecipesClient.HANDLER);
         registrar.playToClient(SmartCraftingRecipePayload.TYPE, SmartCraftingRecipePayload.STREAM_CODEC, SmartCraftingRecipePacket.get()::handle);
